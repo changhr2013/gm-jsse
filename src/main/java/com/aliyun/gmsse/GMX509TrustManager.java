@@ -12,7 +12,7 @@ import java.security.cert.X509Certificate;
 public class GMX509TrustManager implements X509TrustManager {
     private final X509Certificate[] trusted;
 
-    GMX509TrustManager(X509Certificate[] trusted) {
+    public GMX509TrustManager(X509Certificate[] trusted) {
         this.trusted = trusted;
     }
 

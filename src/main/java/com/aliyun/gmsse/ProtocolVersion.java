@@ -3,7 +3,16 @@ package com.aliyun.gmsse;
 import java.io.IOException;
 import java.io.InputStream;
 
+/**
+ * 所用协议的版本号
+ * 本标准的版本号为 1.1
+ * <pre>
+ * struct {
+ *     uint8 major, minor;
+ * } ProtocolVersion;
+ */
 final public class ProtocolVersion implements Comparable {
+
     public static final ProtocolVersion NTLS_1_1 = new ProtocolVersion(1, 1, "NTLSv1.1");
 
     private final int major;
@@ -37,7 +46,7 @@ final public class ProtocolVersion implements Comparable {
     }
 
     byte[] getEncoded() {
-        return new byte[] { (byte) major, (byte) minor };
+        return new byte[]{(byte) major, (byte) minor};
     }
 
     public int getMajor() {

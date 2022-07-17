@@ -6,8 +6,14 @@ final public class CipherSuite {
     private static final HashMap<String, CipherSuite> namesToSuites = new HashMap<String, CipherSuite>();
 
     // ECC-SM2-WITH-SM4-SM3 0x0300E011
-    public static final CipherSuite NTLS_SM2_WITH_SM4_SM3 = new CipherSuite("ECC", "SM2", "SM4", "SM3", 128, 0xe0, 0x13,
-            "ECC-SM2-WITH-SM4-SM3", ProtocolVersion.NTLS_1_1);
+    public static final CipherSuite NTLS_SM2_WITH_SM4_SM3 = new CipherSuite(
+            "ECC",
+            "SM2",
+            "SM4",
+            "SM3",
+            128, 0xe0, 0x13,
+            "ECC-SM2-WITH-SM4-SM3",
+            ProtocolVersion.NTLS_1_1);
 
     private String name;
     private byte[] id;
@@ -15,13 +21,12 @@ final public class CipherSuite {
     private String kexName;
     private String sigName;
 
-    public CipherSuite(String cipherName, String kexName, String sigName, String macName, int keyLength, int id1,
-            int id2, String name, ProtocolVersion version) {
+    public CipherSuite(String cipherName, String kexName, String sigName, String macName, int keyLength, int id1, int id2, String name, ProtocolVersion version) {
         this.kexName = kexName;
         this.sigName = sigName;
         this.name = name;
         this.keyLength = keyLength;
-        this.id = new byte[] { (byte) id1, (byte) id2 };
+        this.id = new byte[]{(byte) id1, (byte) id2};
         namesToSuites.put(name, this);
     }
 

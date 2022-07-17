@@ -38,6 +38,9 @@ public class GMSSLSocketTest {
     public void getEnabledCipherSuitesTest() throws Exception {
         GMSSLSocket sslSocket = new GMSSLSocket("www.aliyun.com", 80);
         String[] strings = sslSocket.getEnabledCipherSuites();
+        for (int i = 0; i < strings.length; i++) {
+            System.out.println(strings[i]);
+        }
         Assert.assertEquals("ECC-SM2-WITH-SM4-SM3", strings[0]);
         sslSocket.close();
     }

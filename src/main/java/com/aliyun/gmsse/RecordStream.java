@@ -11,12 +11,19 @@ import java.util.Arrays;
 import javax.net.ssl.SSLException;
 
 import com.aliyun.gmsse.Record.ContentType;
+import com.aliyun.gmsse.crypto.BCCipher;
+import com.aliyun.gmsse.paddings.GmSSLPadding;
 import com.aliyun.gmsse.record.Alert;
 
+import org.bouncycastle.crypto.BlockCipher;
+import org.bouncycastle.crypto.BufferedBlockCipher;
 import org.bouncycastle.crypto.digests.SM3Digest;
 import org.bouncycastle.crypto.engines.SM4Engine;
 import org.bouncycastle.crypto.macs.HMac;
+import org.bouncycastle.crypto.modes.CBCBlockCipher;
+import org.bouncycastle.crypto.paddings.PaddedBufferedBlockCipher;
 import org.bouncycastle.crypto.params.KeyParameter;
+import org.bouncycastle.crypto.params.ParametersWithIV;
 
 public class RecordStream {
     // 加解密的字节块大小
@@ -31,6 +38,28 @@ public class RecordStream {
     private SM4Engine readCipher;
     private byte[] clientWriteIV;
     private byte[] serverWriteIV;
+
+    private PaddedBufferedBlockCipher writeEngine;
+
+    private PaddedBufferedBlockCipher readEngine;
+
+    public PaddedBufferedBlockCipher getWriteEngine() {
+        return writeEngine;
+    }
+
+    public void setWriteEngine(byte[] keyBytes, byte[] ivBytes) {
+        this.writeEngine = new PaddedBufferedBlockCipher(new CBCBlockCipher(new SM4Engine()), new GmSSLPadding());
+        writeEngine.init(true, new ParametersWithIV(new KeyParameter(keyBytes), ivBytes));
+    }
+
+    public PaddedBufferedBlockCipher getReadEngine() {
+        return readEngine;
+    }
+
+    public void setReadEngine(byte[] keyBytes, byte[] ivBytes) {
+        this.readEngine = new PaddedBufferedBlockCipher(new CBCBlockCipher(new SM4Engine()));
+        this.readEngine.init(false, new ParametersWithIV(new KeyParameter(keyBytes), ivBytes));
+    }
 
     private SequenceNumber readSeqNo = new SequenceNumber(), writeSeqNo = new SequenceNumber();
 
@@ -70,12 +99,12 @@ public class RecordStream {
         // version
         os.write(record.version.getMajor());
         os.write(record.version.getMinor());
-        // fragement length
+        // fragment length
         byte[] bytes = record.fragment;
         int length = bytes.length;
         os.write(length >>> 8 & 0xFF);
         os.write(length & 0xFF);
-        // fragement bytes
+        // fragment bytes
         os.write(bytes);
         os.flush();
     }
@@ -88,7 +117,7 @@ public class RecordStream {
         return read(false);
     }
 
-    public Record read(boolean encrpted) throws IOException {
+    public Record read(boolean encrypted) throws IOException {
         // type(1), version(2), length(2), fragment(length)
         int type = input.read();
         ContentType contentType = ContentType.getInstance(type);
@@ -104,7 +133,7 @@ public class RecordStream {
         // System.out.print(Util.hexString(fragment).trim());
         // System.out.println("} TLSCiphertext;");
 
-        if (encrpted) {
+        if (encrypted) {
             Record record = new Record(contentType, version, fragment);
             byte[] content = decrypt(record);
             return new Record(contentType, version, content);
@@ -118,21 +147,39 @@ public class RecordStream {
         return new Record(contentType, version, fragment);
     }
 
+    /**
+     * 解密 Record
+     * <pre>
+     * struct {
+     *     opaque IV[SecurityParameters.record_iv_length];
+     *     block-ciphered struct {
+     *         opaque content[TLSCompressed.length];
+     *         opaque MAC[SecurityParameters.mac_length];
+     *         uint8 padding_length;
+     *         uint8 padding[GenericBlockCipher.padding_length];
+     *     };
+     * } GenericBlockCipher;
+     * </pre>
+     *
+     * @param record 加密的 Record
+     * @return 原文数据
+     */
     public byte[] decrypt(Record record) throws IOException {
-        byte[] decrypted = decrypt(record.fragment, readCipher, serverWriteIV);
-        // iv, content, mac, padding length, padding
-        int paddingLength = decrypted[decrypted.length - 1];
-        byte[] iv = new byte[16];
-        System.arraycopy(decrypted, 0, iv, 0, 16);
 
-        byte[] content = new byte[decrypted.length - paddingLength - 1 - 32 - 16];
+        byte[] decrypted = decryptByCbc(readEngine, record.fragment);
+//        byte[] decrypted = decrypt(record.fragment, readCipher, serverWriteIV);
+
+        int ivLen = 16;
+        int macLen = 32;
+        int paddingLength = 1;
+
+        byte[] content = new byte[decrypted.length - paddingLength - ivLen - macLen];
         System.arraycopy(decrypted, 16, content, 0, content.length);
 
         byte[] serverMac = new byte[32];
         System.arraycopy(decrypted, 16 + content.length, serverMac, 0, serverMac.length);
 
-        // HMAC_hash(MAC_write_secret，seq_num + TLSCompresed.type + TLSCompresed.version
-        // + TLSCompresed.length + TLSCompresed.fragment)
+        // HMAC_hash(MAC_write_secret，seq_num + TLSCompressed.type + TLSCompressed.version + TLSCompressed.length + TLSCompressed.fragment)
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         long seqNo = readSeqNo.nextValue();
         // seq_num
@@ -152,7 +199,7 @@ public class RecordStream {
         // length
         baos.write(content.length >>> 8 & 0xFF);
         baos.write(content.length & 0xFF);
-        // fragement
+        // fragment
         baos.write(content);
         byte[] mac = hmacHash(baos.toByteArray(), serverMacKey);
         if (!Arrays.equals(serverMac, mac)) {
@@ -164,11 +211,12 @@ public class RecordStream {
     }
 
     public Record encrypt(Record record) throws IOException {
-        // HMAC_hash(MAC_write_secret，seq_num + TLSCompresed.type + TLSCompresed.version
-        // + TLSCompresed.length + TLSCompresed.fragment)
+        // HMAC_hash(MAC_write_secret，seq_num + TLSCompressed.type + TLSCompressed.version + TLSCompressed.length + TLSCompressed.fragment)
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         long seqNo = writeSeqNo.nextValue();
-        // seq_num
+        // seq_num: 序列号。每一个读写状态都分别维持一个单调递增序列号。
+        // 序列号的类型为 uint64，序列号初始值为零，最大不能超出 2^64-1。
+        // 序列号不能回绕。如果序列号溢出，那就必须重新开始握手。
         baos.write((byte) (seqNo >>> 56));
         baos.write((byte) (seqNo >>> 48));
         baos.write((byte) (seqNo >>> 40));
@@ -185,7 +233,7 @@ public class RecordStream {
         // length
         baos.write(record.fragment.length >>> 8 & 0xFF);
         baos.write(record.fragment.length & 0xFF);
-        // fragement
+        // fragment
         baos.write(record.fragment);
         byte[] data = baos.toByteArray();
         byte[] mac = hmacHash(data, clientMacKey);
@@ -197,35 +245,73 @@ public class RecordStream {
         block.write(record.fragment);
         // mac
         block.write(mac);
-        // padding length, the 1 is "padding length" size
-        int total = clientWriteIV.length + record.fragment.length + mac.length + 1;
-        int paddingLength = BLOCK_SIZE - total % BLOCK_SIZE;
-        block.write(paddingLength);
-        // padding
-        for (int i = 0; i < paddingLength; i++) {
+
+        byte[] encrypted2 = encryptByCbc(writeEngine, block.toByteArray());
+        byte[] encrypted;
+        if (true) {
+
+            // padding length, the 1 is "padding length" size
+            int total = clientWriteIV.length + record.fragment.length + mac.length + 1;
+            int paddingLength = BLOCK_SIZE - total % BLOCK_SIZE;
             block.write(paddingLength);
+            // padding
+            for (int i = 0; i < paddingLength; i++) {
+                block.write(paddingLength);
+            }
+            encrypted = encrypt(block.toByteArray(), writeCipher, clientWriteIV);
         }
-        // iv, content, mac, padding length, padding
-        byte[] encrypted = encrypt(block.toByteArray(), writeCipher, clientWriteIV);
-        return new Record(record.contentType, record.version, encrypted);
+
+        return new Record(record.contentType, record.version, encrypted2);
+//         iv, content, mac, padding length, padding
     }
 
     private static byte[] encrypt(byte[] bytes, SM4Engine engine, byte[] iv) {
         byte[] out = new byte[bytes.length];
         int times = bytes.length / BLOCK_SIZE;
         byte[] tmp = new byte[BLOCK_SIZE];
-        byte[] IVtmp = new byte[BLOCK_SIZE];
+        byte[] IVTmp = new byte[BLOCK_SIZE];
 
-        System.arraycopy(iv, 0, IVtmp, 0, BLOCK_SIZE);
+        System.arraycopy(iv, 0, IVTmp, 0, BLOCK_SIZE);
 
         for (int i = 0; i < times; i++) {
             for (int j = 0; j < BLOCK_SIZE; j++) {
-                tmp[j] = (byte) (IVtmp[j] ^ bytes[i * BLOCK_SIZE + j]);
+                tmp[j] = (byte) (IVTmp[j] ^ bytes[i * BLOCK_SIZE + j]);
             }
             engine.processBlock(tmp, 0, out, i * BLOCK_SIZE);
-            System.arraycopy(out, i * BLOCK_SIZE, IVtmp, 0, BLOCK_SIZE);
+            System.arraycopy(out, i * BLOCK_SIZE, IVTmp, 0, BLOCK_SIZE);
         }
         return out;
+    }
+
+    private static byte[] encryptByCbc(PaddedBufferedBlockCipher cipher, byte[] plainBytes) {
+        try {
+            // 加密
+            int updateOutputSize = cipher.getOutputSize(plainBytes.length);
+            byte[] out = new byte[updateOutputSize];
+            int len = cipher.processBytes(plainBytes, 0, plainBytes.length, out, 0);
+            cipher.doFinal(out, len);
+
+            return out;
+        } catch (Exception e) {
+            throw new RuntimeException("encrypt error", e);
+        }
+    }
+
+    private static byte[] decryptByCbc(PaddedBufferedBlockCipher cipher, byte[] cipherBytes) {
+        try {
+            // 解密
+            int updateOutputSize = cipher.getOutputSize(cipherBytes.length);
+            byte[] buf = new byte[updateOutputSize];
+            int len = cipher.processBytes(cipherBytes, 0, cipherBytes.length, buf, 0);
+            len += cipher.doFinal(buf, len);
+
+            // 移除 Padding
+            byte[] out = new byte[len];
+            System.arraycopy(buf, 0, out, 0, len);
+            return out;
+        } catch (Exception e) {
+            throw new RuntimeException("decrypt error", e);
+        }
     }
 
     private static byte[] decrypt(byte[] encrypted, SM4Engine engine, byte[] iv) {
@@ -235,8 +321,8 @@ public class RecordStream {
 
         byte[] tmp = new byte[BLOCK_SIZE];
 
-        byte[] IVtmp = new byte[BLOCK_SIZE];
-        System.arraycopy(iv, 0, IVtmp, 0, BLOCK_SIZE);
+        byte[] IVTmp = new byte[BLOCK_SIZE];
+        System.arraycopy(iv, 0, IVTmp, 0, BLOCK_SIZE);
 
         for (int i = 0; i < times; i++) {
             byte[] in = new byte[BLOCK_SIZE];
@@ -247,10 +333,10 @@ public class RecordStream {
             engine.processBlock(in, 0, tmpOut, 0);
             byte[] out = new byte[BLOCK_SIZE];
             for (int j = 0; j < BLOCK_SIZE; j++) {
-                out[j] = (byte) (tmpOut[j] ^ IVtmp[j]);
+                out[j] = (byte) (tmpOut[j] ^ IVTmp[j]);
             }
 
-            System.arraycopy(tmp, 0, IVtmp, 0, BLOCK_SIZE);
+            System.arraycopy(tmp, 0, IVTmp, 0, BLOCK_SIZE);
 
             System.arraycopy(out, 0, decrypted, i * BLOCK_SIZE, BLOCK_SIZE);
         }

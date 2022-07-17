@@ -14,8 +14,13 @@ import com.aliyun.gmsse.record.AppDataOutputStream;
 import com.aliyun.gmsse.record.ChangeCipherSpec;
 import com.aliyun.gmsse.record.Handshake;
 
+import jdk.nashorn.internal.ir.Block;
+import org.bouncycastle.crypto.BlockCipher;
+import org.bouncycastle.crypto.BufferedBlockCipher;
 import org.bouncycastle.crypto.engines.SM4Engine;
+import org.bouncycastle.crypto.paddings.PaddedBufferedBlockCipher;
 import org.bouncycastle.crypto.params.KeyParameter;
+
 import javax.net.ssl.HandshakeCompletedListener;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
@@ -43,14 +48,14 @@ import java.util.List;
  */
 public class GMSSLSocket extends SSLSocket {
     static List<CipherSuite> supportedSuites = new ArrayList<CipherSuite>();
-    static List<ProtocolVersion> supportedPtrotocols = new ArrayList<ProtocolVersion>();
+    static List<ProtocolVersion> supportedProtocols = new ArrayList<ProtocolVersion>();
 
     static {
         // setup suites
         supportedSuites.add(CipherSuite.NTLS_SM2_WITH_SM4_SM3);
 
         // setup protocols
-        supportedPtrotocols.add(ProtocolVersion.NTLS_1_1);
+        supportedProtocols.add(ProtocolVersion.NTLS_1_1);
     }
 
     GMSSLSession session;
@@ -78,7 +83,7 @@ public class GMSSLSocket extends SSLSocket {
     }
 
     private void initialize() {
-        session = new GMSSLSession(supportedSuites, supportedPtrotocols);
+        session = new GMSSLSession(supportedSuites, supportedProtocols);
         session.protocol = ProtocolVersion.NTLS_1_1;
     }
 
@@ -148,7 +153,7 @@ public class GMSSLSocket extends SSLSocket {
     @Override
     public String[] getSupportedProtocols() {
         List<String> protocols = new ArrayList<String>();
-        for (ProtocolVersion version : supportedPtrotocols) {
+        for (ProtocolVersion version : supportedProtocols) {
             protocols.add(version.toString());
         }
         return protocols.toArray(new String[0]);
@@ -358,11 +363,13 @@ public class GMSSLSocket extends SSLSocket {
         byte[] clientWriteIV = new byte[16];
         System.arraycopy(keyBlock, 96, clientWriteIV, 0, 16);
         recordStream.setClientWriteIV(clientWriteIV);
+        recordStream.setWriteEngine(clientWriteKey, clientWriteIV);
 
         // server write iv
         byte[] serverWriteIV = new byte[16];
         System.arraycopy(keyBlock, 112, serverWriteIV, 0, 16);
         recordStream.setServerWriteIV(serverWriteIV);
+        recordStream.setReadEngine(serverWriteKey, serverWriteIV);
     }
 
     private void receiveServerHelloDone() throws IOException {
