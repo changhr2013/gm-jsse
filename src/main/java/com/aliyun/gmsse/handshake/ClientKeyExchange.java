@@ -5,7 +5,6 @@ import com.aliyun.gmsse.Util;
 import com.aliyun.gmsse.crypto.Crypto;
 import com.aliyun.gmsse.record.Handshake;
 import com.aliyun.gmsse.record.Handshake.Body;
-import org.bouncycastle.jcajce.provider.asymmetric.ec.BCECPublicKey;
 
 import java.io.*;
 import java.security.SecureRandom;
@@ -24,8 +23,7 @@ public class ClientKeyExchange extends Handshake.Body {
         ba.write(random.generateSeed(46));
         this.preMasterSecret = ba.toByteArray();
         try {
-            this.encryptedPreMasterSecret = Crypto.encrypt((BCECPublicKey) certificate.getPublicKey(),
-                    this.preMasterSecret);
+            this.encryptedPreMasterSecret = Crypto.encryptWithAsn1(certificate.getPublicKey(), this.preMasterSecret);
         } catch (Exception ex) {
             throw new RuntimeException(ex.getMessage(), ex);
         }
@@ -45,6 +43,23 @@ public class ClientKeyExchange extends Handshake.Body {
         return bytes.toByteArray();
     }
 
+    public byte[] getPreMasterSecret() {
+        return preMasterSecret;
+    }
+
+    public byte[] getMasterSecret(byte[] clientRandom, byte[] serverRandom) throws IOException {
+        byte[] masterSecret = "master secret".getBytes();
+        ByteArrayOutputStream os = new ByteArrayOutputStream();
+        os.write(clientRandom);
+        os.write(serverRandom);
+        byte[] seed = os.toByteArray();
+        try {
+            return Crypto.prf(preMasterSecret, masterSecret, seed, preMasterSecret.length);
+        } catch (Exception ex) {
+            throw new RuntimeException(ex.getMessage(), ex);
+        }
+    }
+
     @Override
     public String toString() {
         StringWriter str = new StringWriter();
@@ -54,22 +69,5 @@ public class ClientKeyExchange extends Handshake.Body {
         out.print(Util.hexString(encryptedPreMasterSecret));
         out.println("} ClientKeyExchange;");
         return str.toString();
-    }
-
-    public byte[] getPreMasterSecret() {
-        return preMasterSecret;
-    }
-
-    public byte[] getMasterSecret(byte[] clientRandom, byte[] serverRandom) throws IOException {
-        byte[] MASTER_SECRET = "master secret".getBytes();
-        ByteArrayOutputStream os = new ByteArrayOutputStream();
-        os.write(clientRandom);
-        os.write(serverRandom);
-        byte[] seed = os.toByteArray();
-        try {
-            return Crypto.prf(preMasterSecret, MASTER_SECRET, seed, preMasterSecret.length);
-        } catch (Exception ex) {
-            throw new RuntimeException(ex.getMessage(), ex);
-        }
     }
 }

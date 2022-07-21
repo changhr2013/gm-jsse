@@ -6,19 +6,16 @@ import org.bouncycastle.crypto.InvalidCipherTextException;
 import org.bouncycastle.crypto.paddings.BlockCipherPadding;
 
 /**
- * A padder that adds PKCS7/PKCS5 padding to a block.
+ * A padder that adds GmSSL padding to a block.
  */
-public class GmSSLPadding
-    implements BlockCipherPadding
-{
+public class GmSSLPadding implements BlockCipherPadding {
     /**
      * Initialise the padder.
      *
      * @param random - a SecureRandom if available.
      */
     public void init(SecureRandom random)
-        throws IllegalArgumentException
-    {
+            throws IllegalArgumentException {
         // nothing to do.
     }
 
@@ -27,8 +24,7 @@ public class GmSSLPadding
      *
      * @return the name of the algorithm the padder implements.
      */
-    public String getPaddingName()
-    {
+    public String getPaddingName() {
         return "GMSSLPadding";
     }
 
@@ -37,39 +33,34 @@ public class GmSSLPadding
      * number of bytes added.
      */
     public int addPadding(
-        byte[]  in,
-        int     inOff)
-    {
-        byte code = (byte)(in.length - inOff - 1);
+            byte[] in,
+            int inOff) {
+        byte code = (byte) (in.length - inOff - 1);
 
-        while (inOff < in.length)
-        {
+        while (inOff < in.length) {
             in[inOff] = code;
             inOff++;
         }
 
-        return code;
+        return code + 1;
     }
 
     /**
      * return the number of pad bytes present in the block.
      */
     public int padCount(byte[] in)
-        throws InvalidCipherTextException
-    {
-        int count = in[in.length - 1] & 0xff;
-        byte countAsbyte = (byte)count;
+            throws InvalidCipherTextException {
+        int count = (in[in.length - 1] & 0xff) + 1;
+        byte countAsbyte = (byte) (count - 1);
 
         // constant time version
         boolean failed = (count > in.length | count == 0);
 
-        for (int i = 0; i < in.length; i++)
-        {
+        for (int i = 0; i < in.length; i++) {
             failed |= (in.length - i <= count) & (in[i] != countAsbyte);
         }
 
-        if (failed)
-        {
+        if (failed) {
             throw new InvalidCipherTextException("pad block corrupted");
         }
 

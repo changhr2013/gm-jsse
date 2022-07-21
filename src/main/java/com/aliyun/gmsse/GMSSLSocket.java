@@ -30,6 +30,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.PrivateKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
@@ -361,9 +362,9 @@ public class GMSSLSocket extends SSLSocket {
     private void sendClientCertificate() throws IOException {
         ProtocolVersion version = ProtocolVersion.NTLS_1_1;
 
-        java.security.cert.Certificate sigCert = CertificateUtil.readCertificate("/Users/didi/IdeaProjects/gm-jsse/src/test/resources/client-sig.cer");
-        java.security.cert.Certificate encCert = CertificateUtil.readCertificate("/Users/didi/IdeaProjects/gm-jsse/src/test/resources/client-enc.cer");
-        java.security.cert.Certificate middleCert = CertificateUtil.readCertificate("/Users/didi/IdeaProjects/gm-jsse/src/test/resources/middle.cer");
+        java.security.cert.Certificate sigCert = CertificateUtil.readCertificate(Files.newInputStream(Paths.get("src/test/resources/client_sig.cer")));
+        java.security.cert.Certificate encCert = CertificateUtil.readCertificate(Files.newInputStream(Paths.get("src/test/resources/client_enc.cer")));
+        java.security.cert.Certificate middleCert = CertificateUtil.readCertificate(Files.newInputStream(Paths.get("src/test/resources/middleCert.cer")));
         X509Certificate[] chain = new X509Certificate[3];
         chain[0] = (X509Certificate) sigCert;
         chain[1] = (X509Certificate) encCert;
@@ -453,7 +454,7 @@ public class GMSSLSocket extends SSLSocket {
     private void sendClientCertificateVerify() throws IOException {
         ProtocolVersion version = ProtocolVersion.NTLS_1_1;
 
-        PrivateKey privateKey = PemUtil.readPemPrivateKey(Files.newInputStream(FileUtil.file("/Users/didi/IdeaProjects/gm-jsse/src/test/resources/client-sig-key.pem").toPath()));
+        PrivateKey privateKey = PemUtil.readPemPrivateKey(Files.newInputStream(Paths.get("src/test/resources/client-sig-key.pem")));
 
         CertificateVerify ckex = new CertificateVerify(privateKey, handshakes);
         Handshake hs = new Handshake(Handshake.Type.CERTIFICATE_VERIFY, ckex);

@@ -57,7 +57,7 @@ public class RecordStream {
     }
 
     public void setReadEngine(byte[] keyBytes, byte[] ivBytes) {
-        this.readEngine = new PaddedBufferedBlockCipher(new CBCBlockCipher(new SM4Engine()));
+        this.readEngine = new PaddedBufferedBlockCipher(new CBCBlockCipher(new SM4Engine()), new GmSSLPadding());
         this.readEngine.init(false, new ParametersWithIV(new KeyParameter(keyBytes), ivBytes));
     }
 
@@ -166,14 +166,26 @@ public class RecordStream {
      */
     public byte[] decrypt(Record record) throws IOException {
 
-        byte[] decrypted = decryptByCbc(readEngine, record.fragment);
+//        byte[] decrypted = decryptByCbc(readEngine, record.fragment);
 //        byte[] decrypted = decrypt(record.fragment, readCipher, serverWriteIV);
+//
+//        int ivLen = 16;
+//        int macLen = 32;
+//        int paddingLength = 1;
+//
+//        byte[] content = new byte[decrypted.length - paddingLength - ivLen - macLen];
+//        System.arraycopy(decrypted, 16, content, 0, content.length);
+//
+//        byte[] serverMac = new byte[32];
+//        System.arraycopy(decrypted, 16 + content.length, serverMac, 0, serverMac.length);
 
-        int ivLen = 16;
-        int macLen = 32;
-        int paddingLength = 1;
+        byte[] decrypted = decrypt(record.fragment, readCipher, serverWriteIV);
+        // iv, content, mac, padding length, padding
+        int paddingLength = decrypted[decrypted.length - 1];
+        byte[] iv = new byte[16];
+        System.arraycopy(decrypted, 0, iv, 0, 16);
 
-        byte[] content = new byte[decrypted.length - paddingLength - ivLen - macLen];
+        byte[] content = new byte[decrypted.length - paddingLength - 1 - 32 - 16];
         System.arraycopy(decrypted, 16, content, 0, content.length);
 
         byte[] serverMac = new byte[32];
@@ -246,23 +258,21 @@ public class RecordStream {
         // mac
         block.write(mac);
 
-        byte[] encrypted2 = encryptByCbc(writeEngine, block.toByteArray());
-        byte[] encrypted;
-        if (true) {
-
-            // padding length, the 1 is "padding length" size
-            int total = clientWriteIV.length + record.fragment.length + mac.length + 1;
-            int paddingLength = BLOCK_SIZE - total % BLOCK_SIZE;
+        // padding length, the 1 is "padding length" size
+        int total = clientWriteIV.length + record.fragment.length + mac.length + 1;
+        int paddingLength = BLOCK_SIZE - total % BLOCK_SIZE;
+        block.write(paddingLength);
+        // padding
+        for (int i = 0; i < paddingLength; i++) {
             block.write(paddingLength);
-            // padding
-            for (int i = 0; i < paddingLength; i++) {
-                block.write(paddingLength);
-            }
-            encrypted = encrypt(block.toByteArray(), writeCipher, clientWriteIV);
         }
+        // iv, content, mac, padding length, padding
+        byte[] encrypted = encrypt(block.toByteArray(), writeCipher, clientWriteIV);
+        return new Record(record.contentType, record.version, encrypted);
 
-        return new Record(record.contentType, record.version, encrypted2);
-//         iv, content, mac, padding length, padding
+//        byte[] encrypted = encryptByCbc(writeEngine, block.toByteArray());
+//
+//        return new Record(record.contentType, record.version, encrypted);
     }
 
     private static byte[] encrypt(byte[] bytes, SM4Engine engine, byte[] iv) {

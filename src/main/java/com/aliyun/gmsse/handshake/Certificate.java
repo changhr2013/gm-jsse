@@ -20,6 +20,7 @@ import javax.net.ssl.SSLProtocolException;
 import com.aliyun.gmsse.record.Handshake;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.tls.TlsUtils;
 
 public class Certificate extends Handshake.Body {
 
@@ -34,24 +35,23 @@ public class Certificate extends Handshake.Body {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         int total = 0;
         for (X509Certificate cert : certs) {
-            byte[] certContent = null;
+            byte[] certContent = new byte[0];
             try {
                 certContent = cert.getEncoded();
             } catch (CertificateEncodingException e) {
                 // ignore
             }
             int length = certContent.length;
-            out.write(length >>> 16 & 0xFF);
-            out.write(length >>> 8 & 0xFF);
-            out.write(length & 0xFF);
-            out.write(certContent);
+
+            TlsUtils.writeOpaque24(certContent, out);
+
             total += 3 + length;
         }
 
         ByteArrayOutputStream packet = new ByteArrayOutputStream();
-        packet.write(total >>> 16 & 0xFF);
-        packet.write(total >>> 8 & 0xFF);
-        packet.write(total & 0xFF);
+
+        TlsUtils.writeUint24(total, packet);
+
         out.writeTo(packet);
 
         return packet.toByteArray();

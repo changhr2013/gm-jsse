@@ -328,7 +328,7 @@ public class GMSSLSocketTest {
         PowerMockito.mockStatic(Crypto.class);
         PowerMockito.when(Crypto.prf(Mockito.any(byte[].class), Mockito.any(byte[].class), Mockito.any(byte[].class),
                 Mockito.any(int.class))).thenReturn(keyBlock);
-        PowerMockito.when(Crypto.encrypt(Mockito.any(BCECPublicKey.class), Mockito.any(byte[].class))).thenReturn(bytes);
+        PowerMockito.when(Crypto.encryptWithAsn1(Mockito.any(BCECPublicKey.class), Mockito.any(byte[].class))).thenReturn(bytes);
 
         SecurityParameters securityParameters = new SecurityParameters();
         securityParameters.serverRandom = bytes;
